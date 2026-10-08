@@ -330,7 +330,8 @@ class SetupWalkthrough {
 
     try {
       const service = new AITextService(guide.validationCreds(apiKey, model));
-      const reply = await service.generateText('Reply with the single word OK.', { maxTokens: 20, temperature: 0 });
+      // Thinking models (Gemini 3.x) spend output tokens on reasoning first; a tiny cap leaves an empty reply.
+      const reply = await service.generateText('Reply with the single word OK.', { maxTokens: 1024, temperature: 0 });
       return typeof reply === 'string' && reply.length > 0;
     } catch (error) {
       console.log(chalk.red(`  ✗ ${error.message}`));

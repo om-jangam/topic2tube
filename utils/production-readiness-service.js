@@ -138,7 +138,8 @@ class ProductionReadinessService {
     if (this.probes.text) return this.probes.text();
     const service = new AITextService(this.credentialManager.credentials || {});
     if (!service.isAvailable()) throw new Error('No AI text provider is configured');
-    const response = await service.generateText('Reply with exactly READY.', { maxTokens: 16, temperature: 0 });
+    // Thinking models (Gemini 3.x) spend output tokens on reasoning first; a tiny cap leaves an empty reply.
+    const response = await service.generateText('Reply with exactly READY.', { maxTokens: 1024, temperature: 0 });
     return { message: `${service.providerName} returned a live response.`, details: { provider: service.providerName, responseReceived: Boolean(response) } };
   }
 

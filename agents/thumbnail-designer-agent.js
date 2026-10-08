@@ -3,6 +3,16 @@ const path = require('path');
 const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 
+// Titles are AI-written; escape them so characters like & or < can't break the SVG.
+function escapeXML(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
 class ThumbnailDesignerAgent {
   constructor(db, credentials) {
     this.db = db;
@@ -280,12 +290,12 @@ class ThumbnailDesignerAgent {
         </style>
         
         <!-- Shadow -->
-        <text x="642" y="302" class="primary shadow">${concept.primaryText}</text>
-        <text x="642" y="402" class="secondary shadow">${concept.secondaryText}</text>
-        
+        <text x="642" y="302" class="primary shadow">${escapeXML(concept.primaryText)}</text>
+        <text x="642" y="402" class="secondary shadow">${escapeXML(concept.secondaryText)}</text>
+
         <!-- Main text -->
-        <text x="640" y="300" class="primary">${concept.primaryText}</text>
-        <text x="640" y="400" class="secondary">${concept.secondaryText}</text>
+        <text x="640" y="300" class="primary">${escapeXML(concept.primaryText)}</text>
+        <text x="640" y="400" class="secondary">${escapeXML(concept.secondaryText)}</text>
       </svg>
     `;
     

@@ -108,7 +108,9 @@ Topic: ${strategy.topic}
 Angle: ${strategy.angle}
 Content type: ${strategy.contentType}
 Target audience: ${strategy.targetAudience}
+Channel language and voice: ${strategy.brandVoice || 'clear and engaging'}
 Keywords: ${(strategy.keywords || []).join(', ')}
+Write the title and description in the channel's language and voice; tags may mix that language with English search terms.
 Keep tags under YouTube's 500 character total guidance. Avoid fabricated statistics and unsupported claims.`;
 
     try {

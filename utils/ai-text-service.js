@@ -1,5 +1,6 @@
 const OpenAI = require('openai');
 const { Logger } = require('./logger');
+const { retryTransient, isTransientError, isQuotaError } = require('./transient-retry');
 
 const GEMINI_MODELS = [
   'gemini-3.7-flash',
@@ -7,6 +8,8 @@ const GEMINI_MODELS = [
   'gemini-3.5-flash-lite',
 ];
 const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
+// Used only when the selected model is overloaded; both are on the free tier.
+const GEMINI_FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 
 const PROVIDERS = {
   openai: {
@@ -106,17 +109,12 @@ class AITextService {
     const temperature = options.temperature ?? 0.7;
 
     if (this.gemini) {
-      const config = { maxOutputTokens: maxTokens };
-      if (!/^gemini-3\.(?:[5-9]|\d{2,})-/.test(model)) config.temperature = temperature;
-      const response = await this.gemini.models.generateContent({
-        model,
-        contents: prompt,
-        config,
-      });
+      const response = await this._generateGeminiWithFallback(prompt, model, maxTokens, temperature);
       const text = response && response.text;
       if (typeof text !== 'string' || !text.trim()) {
+        const finishReason = response?.candidates?.[0]?.finishReason;
         throw new Error(
-          `${this.providerName} returned an empty response. Check the API key and model quota — free-tier Gemini keys are rate-limited and can return empty output.`
+          `${this.providerName} returned an empty response${finishReason ? ` (finish reason: ${finishReason})` : ''}. Check the API key and model quota — free-tier Gemini keys are rate-limited and can return empty output.`
         );
       }
       return text;
@@ -175,6 +173,28 @@ class AITextService {
       }
     }
 
+    throw lastError;
+  }
+
+  // When the chosen Gemini model stays overloaded, try lighter models before giving up.
+  async _generateGeminiWithFallback(prompt, model, maxTokens, temperature) {
+    const models = [model, ...GEMINI_FALLBACK_MODELS.filter(candidate => candidate !== model)];
+    let lastError = null;
+    for (const candidate of models) {
+      const config = { maxOutputTokens: maxTokens };
+      if (!/^gemini-3\.(?:[5-9]|\d{2,})-/.test(candidate)) config.temperature = temperature;
+      try {
+        return await retryTransient(
+          () => this.gemini.models.generateContent({ model: candidate, contents: prompt, config }),
+          { logger: this.logger, label: `${this.providerName} (${candidate})` }
+        );
+      } catch (error) {
+        // Each model has its own free-tier quota, so a used-up limit is also a reason to move on.
+        if (!isTransientError(error) && !isQuotaError(error)) throw error;
+        lastError = error;
+        this.logger.warn(`${candidate} is ${isQuotaError(error) ? 'out of quota' : 'still unavailable'}; trying the next Gemini model`);
+      }
+    }
     throw lastError;
   }
 

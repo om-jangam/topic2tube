@@ -1832,7 +1832,9 @@ class YouTubeAutomationAgent {
     }
     
     const PORT = process.env.PORT || 3456;
-    this.app.listen(PORT, () => {
+    // Local only: the read routes are unauthenticated, so don't expose them to the network.
+    const HOST = process.env.HOST || '127.0.0.1';
+    this.app.listen(PORT, HOST, () => {
       console.log(chalk.green(`\n✅ YouTube Automation Agent running on port ${PORT}`));
       console.log(chalk.gray('─'.repeat(50)));
       console.log(chalk.white('📊 Dashboard: ') + chalk.cyan(`http://localhost:${PORT}`));

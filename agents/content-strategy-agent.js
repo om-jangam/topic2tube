@@ -430,6 +430,7 @@ Do not invent trend data, statistics, sources, URLs, or factual claims. Use only
       .slice(0, 10)
       .map(topic => topic.topic)
       .join(', ');
+    const profile = await Promise.resolve(this.db?.getChannelProfile?.()).catch(() => null) || {};
     const prompt = `You are selecting a YouTube content strategy.
 Return only valid JSON with this exact shape:
 {
@@ -442,7 +443,10 @@ Return only valid JSON with this exact shape:
 
 Requested topic: ${requestedTopic || 'none'}
 Trending topics available: ${trendingTopics || 'Technology Trends'}
-Channel target audience: ${process.env.TARGET_AUDIENCE || 'General audience interested in educational content'}
+Channel target audience: ${profile.target_audience || process.env.TARGET_AUDIENCE || 'General audience interested in educational content'}
+Channel language and voice: ${profile.brand_voice || 'clear and engaging'}
+If a requested topic is given, use it as the topic with its original wording and language; do not translate or rename it.
+Write angle and keywords in the channel's language and voice.
 Avoid fabricated claims and unsupported numbers.`;
 
     try {

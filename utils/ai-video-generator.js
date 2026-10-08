@@ -7,6 +7,41 @@ const sharp = require('sharp');
 const { Logger } = require('./logger');
 const { runFFmpeg, getMediaDuration, checkFFmpeg, ffmpegInstallHint } = require('./ffmpeg');
 const { MediaGenerationService } = require('./media-generation-service');
+const { retryTransient } = require('./transient-retry');
+
+// Split narration at paragraph and sentence breaks into pieces of at most maxChars.
+function splitNarration(text, maxChars = 1200) {
+  const sentences = String(text || '')
+    .split(/\n\s*\n/)
+    .flatMap(paragraph => paragraph.split(/(?<=[.!?।])\s+/))
+    .map(sentence => sentence.trim())
+    .filter(Boolean);
+  const parts = [];
+  let current = '';
+  for (const sentence of sentences) {
+    for (let start = 0; start < sentence.length; start += maxChars) {
+      const piece = sentence.slice(start, start + maxChars);
+      if (current && current.length + 1 + piece.length > maxChars) {
+        parts.push(current);
+        current = piece;
+      } else {
+        current = current ? `${current} ${piece}` : piece;
+      }
+    }
+  }
+  if (current) parts.push(current);
+  return parts.length ? parts : [String(text || '')];
+}
+
+// Slide text is AI-written; escape it so it renders as text, never as HTML.
+function escapeHTML(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 class AIVideoGenerator {
   constructor(credentials, options = {}) {
@@ -164,27 +199,33 @@ class AIVideoGenerator {
     const model = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
     const voiceName = process.env.GEMINI_TTS_VOICE || 'Kore';
 
-    const response = await this.gemini.models.generateContent({
-      model,
-      contents: [{ parts: [{ text }] }],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName }
+    // One request for a whole script is slow enough to get dropped; narrate it in pieces instead.
+    const parts = splitNarration(text);
+    const pcmParts = [];
+    for (const [index, part] of parts.entries()) {
+      const response = await retryTransient(() => this.gemini.models.generateContent({
+        model,
+        contents: [{ parts: [{ text: part }] }],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName }
+            }
           }
         }
-      }
-    });
+      }), { logger: this.logger, label: `Gemini TTS part ${index + 1} of ${parts.length}` });
 
-    const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!audioData) {
-      throw new Error('Gemini TTS returned no audio data');
+      const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!audioData) {
+        throw new Error(`Gemini TTS returned no audio data for part ${index + 1} of ${parts.length}`);
+      }
+      pcmParts.push(Buffer.from(audioData, 'base64'));
     }
 
     // Gemini returns raw PCM (24kHz, mono, 16-bit); encode to the requested container via FFmpeg
     const pcmPath = outputPath + '.pcm';
-    await fs.writeFile(pcmPath, Buffer.from(audioData, 'base64'));
+    await fs.writeFile(pcmPath, Buffer.concat(pcmParts));
     await runFFmpeg(['-y', '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', pcmPath, outputPath]);
     await fs.unlink(pcmPath).catch(() => {});
 
@@ -697,9 +738,9 @@ class AIVideoGenerator {
     
     <!-- Title Slide -->
     <div class="slide active">
-        ${visualAssets[0] ? `<img class="background-image" src="${visualAssets[0]}" />` : ''}
+        ${visualAssets[0] ? `<img class="background-image" src="${escapeHTML(visualAssets[0])}" />` : ''}
         <div class="content">
-            <h1>${script.title}</h1>
+            <h1>${escapeHTML(script.title)}</h1>
             <p>Ethereal Dreamscript</p>
         </div>
     </div>
@@ -755,9 +796,9 @@ class AIVideoGenerator {
         
         slides.push(`
         <div class="slide">
-            ${visualAssets[assetIndex] ? `<img class="background-image" src="${visualAssets[assetIndex]}" />` : ''}
+            ${visualAssets[assetIndex] ? `<img class="background-image" src="${escapeHTML(visualAssets[assetIndex])}" />` : ''}
             <div class="content">
-                <h2>${section.title}</h2>
+                <h2>${escapeHTML(section.title)}</h2>
                 ${this.formatSectionContent(section)}
             </div>
         </div>`);
@@ -995,4 +1036,4 @@ class AIVideoGenerator {
   }
 }
 
-module.exports = { AIVideoGenerator };
+module.exports = { AIVideoGenerator, splitNarration };
