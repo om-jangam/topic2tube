@@ -1,3 +1,9 @@
+// Keep the self-test away from the real channel database.
+process.env.AGENTTUBE_DB_PATH = process.env.AGENTTUBE_DB_PATH ||
+  require('path').join(require('os').tmpdir(), `agenttube-test-${process.pid}.db`);
+// The API contract checks expect no dashboard password; don't inherit the one from .env.
+process.env.API_KEY = '';
+
 const { Database } = require('./database/db');
 const { Logger } = require('./utils/logger');
 const { CredentialManager } = require('./utils/credential-manager');
@@ -71,7 +77,11 @@ class SystemTest {
     let passed = 0;
     let failed = 0;
 
-    for (const { name, test } of tests) {
+    const filter = String(process.env.TEST_FILTER || '').trim().toLowerCase();
+    const selected = filter ? tests.filter(({ name }) => name.toLowerCase().includes(filter)) : tests;
+    if (filter) console.log(chalk.gray(`Filter: ${process.env.TEST_FILTER} (${selected.length} of ${tests.length})`));
+
+    for (const { name, test } of selected) {
       try {
         console.log(chalk.cyan(`\n🔍 Testing ${name}...`));
         await test();

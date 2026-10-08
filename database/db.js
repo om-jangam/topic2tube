@@ -5,7 +5,7 @@ const { Logger } = require('../utils/logger');
 
 class Database {
   constructor() {
-    this.dbPath = path.join(__dirname, '..', 'data', 'youtube_automation.db');
+    this.dbPath = process.env.AGENTTUBE_DB_PATH || path.join(__dirname, '..', 'data', 'youtube_automation.db');
     this.db = null;
     this.logger = new Logger('Database');
   }
