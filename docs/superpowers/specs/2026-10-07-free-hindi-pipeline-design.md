@@ -40,6 +40,27 @@ the app says why instead of producing placeholder or template content.
 
 ## Design
 
+### 0. Channel language (added 2026-10-09)
+The owner asked for Hindi **and other languages**. One channel-level setting
+drives everything that is language-specific; the owner's channel keeps
+`hi` (Hindi) with romanized titles.
+
+- Settings `channel_language` (default `hi`) and `title_style`
+  (`romanized` = Roman letters mixed with English, like Hinglish; or `native`
+  = the language's own script). Editable from the dashboard settings.
+- `utils/languages.js` holds one profile per supported language: name,
+  writing system and its Unicode range, Kokoro lang code and female voice
+  (or none), and the font used for slides, thumbnails and Shorts captions.
+- Supported at launch (Gemini free voices speak all of them): Hindi, English,
+  Marathi, Tamil, Telugu, Bengali, Spanish, French, Portuguese, Italian,
+  Japanese, Chinese.
+- Kokoro (unlimited local backup voice) covers only Hindi, English, Spanish,
+  French, Italian, Portuguese, Japanese and Chinese. For other languages, when
+  every Gemini voice model is out of free quota, the job stops with a clear
+  "try again after about 1 PM" reason.
+- Everything below that says "Hindi", "Devanagari" or "Hinglish" means "the
+  channel language", "its writing system" and "its title style".
+
 ### 1. Script writing (`utils/ai-text-service.js`, `agents/*`)
 - Gemini model chain: configured model first, then gemini-3.6-flash →
   gemini-3.5-flash → gemini-3.5-flash-lite → gemini-3.1-flash-lite. Move on

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** One topic in → a 5–8 minute Hinglish tutorial video (female AI voice, matching visuals, thumbnail) plus 3 Shorts, using only free APIs and open-source tools, and a clear error instead of junk when something can't be done.
+**Goal:** One topic in → a 5–8 minute tutorial video in the channel's language (owner: Hindi narration, Hinglish titles) (female AI voice, matching visuals, thumbnail) plus 3 Shorts, using only free APIs and open-source tools, and a clear error instead of junk when something can't be done.
 
 **Architecture:** Keep AgentTube's agents, dashboard, review and Shorts. The changes are:
 - Harden the Gemini text and TTS calls with model chains.
@@ -37,18 +37,19 @@
 - TTS chain, `GEMINI_TTS_MODEL` first, then: `gemini-3.1-flash-tts-preview`, `gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts`, `gemini-2.5-flash-preview-tts`. Each TTS piece is ≤ 1,200 characters.
 
 **Voice**
-- Female voice: Gemini `GEMINI_TTS_VOICE || 'Kore'`; Kokoro `KOKORO_VOICE || 'hf_alpha'`, lang code `h`.
+- Female voice: Gemini `GEMINI_TTS_VOICE || 'Kore'` (speaks every supported language); Kokoro voice and lang code come from the channel language profile (Task 5) — Hindi: `hf_alpha` / `h`. Languages without a Kokoro voice have no unlimited fallback.
 
 **Language and content**
-- Title, `onScreen`, description and `thumbnailText` are Roman Hinglish.
-- `narration` is Devanagari, with English tech words kept in Latin script.
+- Everything language-specific comes from the channel language profile (Task 5): settings `channel_language` (default `hi`) and `title_style` (default `romanized`).
+- Title, `onScreen`, description and `thumbnailText` follow `title_style` (owner: Roman Hinglish).
+- `narration` uses the language's own writing system (owner: Devanagari), with English tech words kept in Latin script.
 - `visualQuery` is English.
 - Long video target is 900–1,200 spoken words. The quality gate passes narration audio of 270–540 seconds.
 
 **Output formats**
 - Long video: 1920×1080, 30 fps, H.264, yuv420p.
 - Thumbnail: 1280×720 JPEG.
-- Shorts: existing 1080×1920 output, subtitles in font `Nirmala UI`.
+- Shorts: existing 1080×1920 output, subtitles in the language profile's font (Hindi: `Nirmala UI`).
 
 **Behaviour**
 - Daily auto-generation runs at `0 14 * * *` local time and stays paused by default (`automation_paused=true` is already set).
@@ -61,10 +62,10 @@
 
 ## Review Focus
 
-1. **Topic and title text with `& < > " ' – ? ( )` and Devanagari.** File names, SVG overlays, FFmpeg filter args and thumbnails must render it literally. Pinned in Task 8 (overlay) and Task 9 (thumbnail).
-2. **Pexels misbehaving.** No results, 401 (bad key), 429, or no key at all → fall through to Pollinations, then to a slide; the job still finishes. Pinned in Task 7.
-3. **One huge AI narration paragraph with no punctuation.** Every TTS piece is still ≤ 1,200 characters and no words are lost. Pinned in Task 6.
-4. **Audio length mismatch.** Real audio much shorter or longer than estimated, or a scene with empty narration → no zero or negative segment durations, and segment durations sum to the audio length. Pinned in Task 8.
+1. **Topic and title text with `& < > " ' – ? ( )` and Devanagari.** File names, SVG overlays, FFmpeg filter args and thumbnails must render it literally. Pinned in Task 9 (overlay) and Task 10 (thumbnail).
+2. **Pexels misbehaving.** No results, 401 (bad key), 429, or no key at all → fall through to Pollinations, then to a slide; the job still finishes. Pinned in Task 8.
+3. **One huge AI narration paragraph with no punctuation.** Every TTS piece is still ≤ 1,200 characters and no words are lost. Pinned in Task 7.
+4. **Audio length mismatch.** Real audio much shorter or longer than estimated, or a scene with empty narration → no zero or negative segment durations, and segment durations sum to the audio length. Pinned in Task 9.
 5. **Free limits exhausted mid-job.** Text or TTS out of quota → the job fails with a readable reason (or uses Kokoro for TTS), never a template script or a placeholder video. Pinned in Tasks 4 and 6.
 
 ---
@@ -177,7 +178,56 @@
 - [ ] **Step 4: Verify the job reason is visible.** Using the test DB, run a manual-generation job with the failing stub through `index.js` `startGenerationJob` in the same test. Assert that the job ends `status: 'failed'` and `job.error` contains `Free Gemini limits`. Run the filter command; expected: PASS.
 - [ ] **Step 5: Run `npm test`. Then commit:** `feat: fail with a clear reason instead of template scripts when AI is configured`
 
-### Task 5: Kokoro local Hindi voice (spike, then helper)
+### Task 5: Channel language setting
+
+**Files:**
+- Create: `utils/languages.js`
+- Modify: `index.js`
+  - `PUT /api/settings` (line ~1231): accept `channel_language` and `title_style`.
+  - `generateContent` strategy stage (line ~1450): set `generated.language` and `generated.titleStyle`.
+- Modify: `agents/script-writer-agent.js` (prompt rules from Task 3 → driven by the language profile)
+- Modify: `agents/content-strategy-agent.js`, `agents/seo-optimizer-agent.js` (prompts gain a language line)
+- Modify: `dashboard/index.html` (`#profile-form`: two selects), `dashboard/app.js` (fill from `state.settings`, send in the existing `PUT /api/settings` call)
+- Test: `test.js` → `'Channel Language'`
+
+**Interfaces:**
+- Produces:
+  - `LANGUAGES` — map of code → `{ code, name, script, scriptRange: RegExp, kokoroLang: string|null, kokoroVoice: string|null, font: string }` for:
+    - `hi` Hindi, Devanagari, `/[ऀ-ॿ]/`, Kokoro `h` / `hf_alpha`, font `Nirmala UI`
+    - `mr` Marathi, Devanagari, `/[ऀ-ॿ]/`, no Kokoro, `Nirmala UI`
+    - `ta` Tamil, `/[஀-௿]/`, no Kokoro, `Nirmala UI`
+    - `te` Telugu, `/[ఀ-౿]/`, no Kokoro, `Nirmala UI`
+    - `bn` Bengali, `/[ঀ-৿]/`, no Kokoro, `Nirmala UI`
+    - `en` English, Latin, `/[A-Za-z]/`, Kokoro `a` / `af_heart`, `Arial`
+    - `es` Spanish, Latin, Kokoro `e` / `ef_dora`, `Arial`
+    - `fr` French, Latin, Kokoro `f` / `ff_siwis`, `Arial`
+    - `pt` Portuguese, Latin, Kokoro `p` / `pf_dora`, `Arial`
+    - `it` Italian, Latin, Kokoro `i` / `if_sara`, `Arial`
+    - `ja` Japanese, `/[぀-ヿ一-鿿]/`, Kokoro `j` / `jf_alpha`, `Yu Gothic`
+    - `zh` Chinese, `/[一-鿿]/`, Kokoro `z` / `zf_xiaobei`, `Microsoft YaHei`
+  - `getLanguageProfile(code) -> profile`. Unknown or empty code → the `hi` profile.
+  - `languageInstructions(profile, titleStyle) -> { narration: string, display: string }` — the two prompt sentences:
+    - narration: write in `<name>` using the `<script>` writing system, keeping English technical words in English letters.
+    - display (`romanized`): write in `<name>` using Roman/English letters mixed with English words, the way people type it online. (`native`): write in `<name>` using its own `<script>` writing system. For Latin-script languages both styles mean the same.
+  - Strategy objects carry `language` (code) and `titleStyle` (`'romanized'|'native'`), read from settings `channel_language` / `title_style`, falling back to `process.env.CHANNEL_LANGUAGE`, then `hi` / `romanized`.
+
+- [ ] **Step 1: Write the failing test `testChannelLanguage`.**
+  - `getLanguageProfile('ta').scriptRange.test('வணக்கம்') === true`; `getLanguageProfile('xx').code === 'hi'`; `getLanguageProfile('mr').kokoroLang === null`; `getLanguageProfile('hi').kokoroVoice === 'hf_alpha'`.
+  - `languageInstructions(getLanguageProfile('hi'), 'romanized').display` mentions `Roman`; with `'native'` it mentions `Devanagari`.
+  - The script prompt sent by `generateScriptWithAI` (captured by an `aiTextService` stub) for `{ language: 'ta', titleStyle: 'native' }` contains `Tamil` and does not contain `Devanagari`; for the default strategy it contains `Hindi` and `Devanagari`.
+  - Through the HTTP app (pattern of the existing API checks, with the test DB): `PUT /api/settings` with `{ channel_language: 'ta', title_style: 'native' }` → 200, and `getSetting('channel_language') === 'ta'`; `{ channel_language: 'xx' }` → 400.
+- [ ] **Step 2: Watch it fail.** Run `TEST_FILTER="Channel Language" npm test`. Expected: FAIL (module not found).
+- [ ] **Step 3: Implement.**
+  - `utils/languages.js` as specified.
+  - Script prompt rules use `languageInstructions(...)` instead of the fixed Hindi/Devanagari sentences from Task 3.
+  - Strategy and SEO prompts add `Channel language: <name>` and the display sentence.
+  - `index.js` reads the two settings in the strategy stage; `PUT /api/settings` validates `channel_language` against `LANGUAGES` and `title_style` against `romanized|native`.
+  - Dashboard: two selects in `#profile-form` — "Video language" (12 options, labelled by name) and "Title style" (`Roman letters mixed with English` / `Native script`) — filled from `state.settings`, saved with the existing settings call.
+  - Set the owner's settings to `hi` / `romanized` (they are also the defaults).
+- [ ] **Step 4: Watch it pass, then run `npm test`.** Task 3's `'Hinglish Script Scenes'` check must still pass.
+- [ ] **Step 5: Commit:** `feat: channel language setting for scripts, titles and voices`
+
+### Task 6: Kokoro local voice (spike with Hindi, then helper)
 
 **Files:**
 - Create: `scripts/kokoro_tts.py`
@@ -187,7 +237,7 @@
 
 **Interfaces:**
 - Produces:
-  - `synthesizeWithKokoro(text: string, outputPath: string, options?: { voice?: string, python?: string, execFileImpl?: Function }) -> Promise<string>`. It writes the text to a temp UTF-8 file, runs `python scripts/kokoro_tts.py --text-file <tmp> --out <outputPath> --voice <voice> --lang h` via `execFile` (args array, no shell, timeout 20 minutes), and resolves to `outputPath`.
+  - `synthesizeWithKokoro(text: string, outputPath: string, options?: { voice?: string, lang?: string, python?: string, execFileImpl?: Function }) -> Promise<string>` (voice and lang default to the Hindi profile: `hf_alpha` / `h`). It writes the text to a temp UTF-8 file, runs `python scripts/kokoro_tts.py --text-file <tmp> --out <outputPath> --voice <voice> --lang <lang>` via `execFile` (args array, no shell, timeout 20 minutes), and resolves to `outputPath`.
   - `isKokoroAvailable(options?) -> Promise<boolean>`. Runs `python -c "import kokoro"`.
   - The Python path is `process.env.KOKORO_PYTHON || 'D:\\youtube\\.venv-kokoro\\Scripts\\python.exe'`.
 
@@ -211,7 +261,7 @@
 - [ ] **Step 4: Watch it fail, implement `utils/kokoro-tts.js`, watch it pass.** Run `TEST_FILTER="Kokoro" npm test`.
 - [ ] **Step 5: Commit:** `feat: local Kokoro Hindi TTS helper` (the venv is not committed).
 
-### Task 6: TTS model chain with a consistent voice
+### Task 7: TTS model chain with a consistent voice
 
 **Files:**
 - Modify: `utils/ai-video-generator.js`
@@ -232,7 +282,8 @@
 - [ ] **Step 1: Write the failing test.** Stub `gemini.models.generateContent` to return 0.1 s of PCM per call, recording `model` and piece text. Stub `runFFmpeg` with a test injection seam: a `this.runFFmpegImpl` default, so the test writes a dummy file. Stub Kokoro via `this.kokoroImpl`.
   - (a) A 2,600-character narration → 3 calls, all with the same model.
   - (b) A 429 on the first model's 2nd piece → that model's pieces are discarded. All final pieces come from `gemini-3.8-flash-tts`, and `lastNarrationResult.model === 'gemini-3.8-flash-tts'`.
-  - (c) Every TTS model returns 429 → `kokoroImpl` is called once with the full text, and `provider === 'kokoro'`.
+  - (c) Every TTS model returns 429 → `kokoroImpl` is called once with the full text and the language profile's voice and lang (Hindi: `hf_alpha`, `h`), and `provider === 'kokoro'`.
+  - (c2) Same, with channel language `mr` (no Kokoro voice) → `kokoroImpl` is not called, and `generateTTSAudio` rejects with a message containing `try again after about 1 PM`.
   - (d) Kokoro also fails → `generateTTSAudio` rejects, and the message contains `Kokoro`.
   - (e) Review Focus #3: one 5,000-character string with no punctuation → every piece is ≤ 1,200 characters, and the joined pieces equal the input with whitespace normalised.
 - [ ] **Step 2: Watch it fail.** Run `TEST_FILTER="TTS Chain" npm test`.
@@ -240,14 +291,14 @@
   - Iterate the models.
   - For each model, narrate every piece (each piece wrapped in `retryTransient`).
   - On a quota error, or a transient error after retries, move to the next model and drop the collected PCM.
-  - When all models are exhausted, call Kokoro on the full text; it produces WAV, which is encoded to the output with FFmpeg.
+  - When all models are exhausted, call Kokoro on the full text with the language profile's voice and lang; it produces WAV, which is encoded to the output with FFmpeg. If the profile has no Kokoro voice, reject with an `AiStepError('Narration', …)`.
   - When Kokoro fails, reject.
   - Remove the simulated-audio path for the AI-configured case.
   - Measure the finished file with `getMediaDuration`, set `lastNarrationResult.duration` (seconds), and make sure the production stores it as `assets.audio.duration`. Assert `duration > 0` in test (a).
 - [ ] **Step 4: Watch it pass, then run `npm test`.**
 - [ ] **Step 5: Commit:** `feat: TTS model chain with consistent voice and Kokoro fallback`
 
-### Task 7: Free scene visuals (Pexels → Pollinations → slide)
+### Task 8: Free scene visuals (Pexels → Pollinations → slide)
 
 **Files:**
 - Create: `utils/stock-media.js`
@@ -283,7 +334,7 @@
 - [ ] **Step 4: Watch it pass, then run `npm test`.**
 - [ ] **Step 5: Commit:** `feat: free scene visuals from Pexels and Pollinations with slide fallback`
 
-### Task 8: Scene timeline renderer and production wiring
+### Task 9: Scene timeline renderer and production wiring
 
 **Files:**
 - Create: `utils/scene-timeline.js`
@@ -305,7 +356,7 @@
     - Video segments are looped or trimmed, then scaled to cover 1920×1080.
     - Images use `zoompan` with a slow 1.0 → 1.08 zoom.
     - Slides are shown static.
-    - `onScreen` is a bottom caption PNG (sharp SVG, escaped) overlaid on top.
+    - `onScreen` is a bottom caption PNG (sharp SVG, escaped, `font-family` from the language profile) overlaid on top.
     - All segments are concatenated.
   - `generateVideo` sets `lastVideoResult.scenes` to `[{ index, label, duration, path, provider: visual.source, model: null, taskId: null }]` in `scriptScenes` order, so `buildInitialSceneManifest` matches by label.
 
@@ -324,7 +375,7 @@
 - [ ] **Step 4: Watch it pass, then run `npm test`.** The existing slideshow and hybrid checks must still pass.
 - [ ] **Step 5: Commit:** `feat: scene-aligned video timeline with stock visuals and slide text`
 
-### Task 9: Thumbnail and credits
+### Task 10: Thumbnail and credits
 
 **Files:**
 - Modify: `agents/thumbnail-designer-agent.js`
@@ -336,7 +387,7 @@
 
 **Interfaces:**
 - Produces:
-  - `composeThumbnail({ backgroundPath, text, outputPath }) -> Promise<{ path, width: 1280, height: 720 }>`.
+  - `composeThumbnail({ backgroundPath, text, outputPath, font }) -> Promise<{ path, width: 1280, height: 720 }>`. `font` is the language profile's font (default `Arial`).
   - `appendMediaCredits(description, sceneVisuals) -> string`. It is idempotent: credits are never duplicated.
 
 - [ ] **Step 1: Write the failing test.**
@@ -347,7 +398,7 @@
 - [ ] **Step 4: Watch it pass, then run `npm test`.**
 - [ ] **Step 5: Commit:** `feat: thumbnails from scene visuals and automatic media credits`
 
-### Task 10: Quality gate
+### Task 11: Quality gate
 
 **Files:**
 - Modify: `utils/operator-service.js` (`runQualityChecks`, line 11)
@@ -355,23 +406,23 @@
 
 **Interfaces:**
 - Consumes:
-  - `production.assets.audio.duration` (seconds; set it in Task 6 from `getMediaDuration`).
+  - `production.assets.audio.duration` (seconds; set it in Task 7 from `getMediaDuration`).
   - `production.assets.video.sceneVisuals`.
   - `formatScriptForTTS`.
 - Produces three new checks, all blocking unless noted:
-  - `narration_language`: Devanagari letters are ≥ 50% of all letters in the TTS text.
+  - `narration_language`: for non-Latin languages, letters matching the profile's `scriptRange` are ≥ 50% of all letters in the TTS text. For Latin-script languages it passes unless the narration contains template markers (`welcome back to the channel`, `Section 1:`).
   - `narration_length`: audio duration is within 270–540 s. **Non-blocking.**
   - `scene_visuals`: every scene has a visual file on disk. Slides make up ≤ 40% of scenes, otherwise it fails as a warning (non-blocking).
 
 - [ ] **Step 1: Write the failing test.**
-  - An English template narration fails `narration_language`.
+  - An English template narration fails `narration_language` for `hi` and for `en` (template markers); a Tamil narration passes for `ta`.
   - A Devanagari narration passes it.
   - 120 s fails `narration_length` and is non-blocking; 400 s passes.
   - A missing scene file fails `scene_visuals`.
 - [ ] **Step 2: Watch it fail, implement, watch it pass, then run `npm test`.** Use `TEST_FILTER="Hindi Quality" npm test`.
 - [ ] **Step 3: Commit:** `feat: Hindi narration, length and visual quality gate`
 
-### Task 11: Schedule, settings and cleanup
+### Task 12: Schedule, settings and cleanup
 
 **Files:**
 - Modify: `schedules/daily-automation.js:33` (`'0 6 * * *'` → `'0 14 * * *'`, with the comment updated)
@@ -389,17 +440,17 @@
 - [ ] **Step 4: Reject the four broken productions** via `POST /api/content/:id/reject`, with note `Broken test run before free pipeline fixes`. Verify that the dashboard pipeline shows them as rejected.
 - [ ] **Step 5: Commit:** `chore: generate daily at 2 PM after free quota reset`
 
-### Task 12: Shorts with Hindi captions
+### Task 13: Shorts captions in the channel language
 
 **Files:**
-- Modify: `utils/shorts-repurposing-service.js` (`videoFilter`: `FontName=Arial` → `FontName=Nirmala UI`)
+- Modify: `utils/shorts-repurposing-service.js` (`videoFilter`: `FontName=Arial` → the language profile's `font`)
 - Test: `test.js` → `'Shorts Hindi Captions'`
 
-- [ ] **Step 1: Write the failing test.** `new ShortsRepurposingService(...).videoFilter('blur', 'C:/x/c.srt')` contains `FontName=Nirmala UI` and does not contain `FontName=Arial`.
+- [ ] **Step 1: Write the failing test.** `new ShortsRepurposingService(...).videoFilter('blur', 'C:/x/c.srt')` contains `FontName=Nirmala UI` and does not contain `FontName=Arial` for channel language `hi`, and contains `FontName=Microsoft YaHei` for `zh`.
 - [ ] **Step 2: Watch it fail, implement, watch it pass.** Run `TEST_FILTER="Shorts Hindi" npm test`. Then run `npm test`; the existing "Shorts Repurposing Studio" check still passes.
 - [ ] **Step 3: Commit:** `fix: Devanagari-capable font for Shorts captions`
 
-### Task 13: Acceptance run
+### Task 14: Acceptance run
 
 - [ ] **Step 1: Restart the app.** Stop it, run `npm start`, and check that `/health` reports `healthy`.
 - [ ] **Step 2: Queue the topic** `Jio users ko FREE Google AI Pro kaise milega? (18 mahine) – Step by Step` via `POST /generate` (`style: tutorial`, `length: medium`). Poll `/api/jobs/:id` until it is terminal.
