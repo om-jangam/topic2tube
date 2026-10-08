@@ -49,6 +49,7 @@ class SystemTest {
       { name: 'Publishing Safety', test: () => this.testPublishingSafety() },
       { name: 'Multi-Provider Credential Validation', test: () => this.testCredentialValidation() },
       { name: 'AI Text Service Token Compatibility', test: () => this.testAITextServiceTokenParams() },
+      { name: 'Gemini Model Chain', test: () => this.testGeminiModelChain() },
       { name: 'Placeholder Scheduling Guard', test: () => this.testPlaceholderSchedulingGuard() },
       { name: 'FFmpeg Resolution', test: () => this.testFFmpegResolution() },
       { name: 'Gemini Media Provider Selection', test: () => this.testGeminiMediaProvider() },
@@ -2393,6 +2394,59 @@ class SystemTest {
     }
 
     this.logger.info('Credential validation test completed successfully');
+  }
+
+  async testGeminiModelChain() {
+    const { AITextService } = require('./utils/ai-text-service');
+    const apiError = (code) => Object.assign(new Error(JSON.stringify({ error: { code } })), { status: code });
+    const makeService = (behaviour) => {
+      const service = Object.create(AITextService.prototype);
+      service.logger = { info() {}, warn() {}, error() {} };
+      service.providerName = 'Google Gemini';
+      service.model = 'gemini-3.7-flash';
+      service.retryOptions = { sleep: async () => {} };
+      service.calls = [];
+      service.gemini = { models: { generateContent: async ({ model, config }) => {
+        service.calls.push({ model, config });
+        return behaviour(model, service.calls.length);
+      } } };
+      return service;
+    };
+
+    const quota = makeService(model => {
+      if (model === 'gemini-3.7-flash') throw apiError(429);
+      return { text: `from ${model}` };
+    });
+    const quotaText = await quota.generateText('hi', { maxTokens: 50 });
+    const quotaModels = quota.calls.map(call => call.model);
+    if (quotaText !== 'from gemini-3.6-flash' || JSON.stringify(quotaModels) !== JSON.stringify(['gemini-3.7-flash', 'gemini-3.6-flash'])) {
+      throw new Error(`Quota on the first model should move to gemini-3.6-flash, tried ${quotaModels.join(' -> ')}`);
+    }
+    if (!quota.calls.every(call => call.config.maxOutputTokens === 50 + 8192)) {
+      throw new Error(`Thinking headroom missing: ${quota.calls.map(call => call.config.maxOutputTokens).join(', ')}`);
+    }
+
+    const busy = makeService(model => {
+      if (model === 'gemini-3.7-flash') throw apiError(503);
+      return { text: `from ${model}` };
+    });
+    await busy.generateText('hi', { maxTokens: 50 });
+    const busyPrimary = busy.calls.filter(call => call.model === 'gemini-3.7-flash').length;
+    if (busyPrimary !== 3) throw new Error(`An overloaded model should be tried 3 times, got ${busyPrimary}`);
+
+    const invalid = makeService(() => { throw apiError(400); });
+    let invalidRejected = false;
+    try { await invalid.generateText('hi', { maxTokens: 50 }); } catch (_error) { invalidRejected = true; }
+    if (!invalidRejected || invalid.calls.length !== 1) {
+      throw new Error(`A 400 error must stop after one call, got ${invalid.calls.length} calls`);
+    }
+
+    const exhausted = makeService(() => { throw apiError(429); });
+    let exhaustedError = null;
+    try { await exhausted.generateText('hi', { maxTokens: 50 }); } catch (error) { exhaustedError = error; }
+    if (!exhaustedError || !String(exhaustedError.message).includes('429')) {
+      throw new Error('When every model is out of quota the error must say 429');
+    }
   }
 
   async testAITextServiceTokenParams() {

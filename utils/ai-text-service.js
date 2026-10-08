@@ -8,8 +8,10 @@ const GEMINI_MODELS = [
   'gemini-3.5-flash-lite',
 ];
 const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
-// Used only when the selected model is overloaded; both are on the free tier.
-const GEMINI_FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+// Tried in order when the selected model is overloaded or out of its free daily quota.
+const GEMINI_FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+// Gemini 3.x spends output tokens on thinking first; without headroom replies get cut off.
+const GEMINI_THINKING_HEADROOM = 8192;
 
 const PROVIDERS = {
   openai: {
@@ -181,12 +183,12 @@ class AITextService {
     const models = [model, ...GEMINI_FALLBACK_MODELS.filter(candidate => candidate !== model)];
     let lastError = null;
     for (const candidate of models) {
-      const config = { maxOutputTokens: maxTokens };
+      const config = { maxOutputTokens: maxTokens + GEMINI_THINKING_HEADROOM };
       if (!/^gemini-3\.(?:[5-9]|\d{2,})-/.test(candidate)) config.temperature = temperature;
       try {
         return await retryTransient(
           () => this.gemini.models.generateContent({ model: candidate, contents: prompt, config }),
-          { logger: this.logger, label: `${this.providerName} (${candidate})` }
+          { logger: this.logger, label: `${this.providerName} (${candidate})`, ...(this.retryOptions || {}) }
         );
       } catch (error) {
         // Each model has its own free-tier quota, so a used-up limit is also a reason to move on.
