@@ -4,65 +4,10 @@ const path = require('path');
 const sharp = require('sharp');
 const { getMediaDuration, runFFmpeg } = require('./ffmpeg');
 const { ProvenanceService } = require('./provenance-service');
+const { scriptScenes } = require('./script-scenes');
 
 const VIDEO_EXTENSIONS = new Set(['.mp4']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
-
-function textFromSection(section = {}) {
-  if (typeof section.content === 'string') return /\[[^\]]*\]/.test(section.content) ? '' : section.content;
-  if (Array.isArray(section.content)) return section.content.filter(item => typeof item === 'string' && !/\[[^\]]*\]/.test(item)).join(' ');
-  if (Array.isArray(section.items)) return section.items.map(item => `${item.title || ''}. ${item.description || ''}`).join(' ');
-  if (Array.isArray(section.steps)) return section.steps.map(item => `${item.title || ''}. ${item.description || ''}`).join(' ');
-  return '';
-}
-
-function scriptScenes(script = {}) {
-  const scenes = [];
-  if (script.hook?.text || script.title) {
-    scenes.push({
-      label: 'Hook',
-      scriptText: script.hook?.text || script.title,
-      prompt: `${script.hook?.text || script.title}. Cinematic opening shot, clear subject, intentional camera movement, no captions or on-screen text.`
-    });
-  }
-  if (script.introduction) {
-    const scriptText = [
-      script.introduction.greeting,
-      script.introduction.topicIntro,
-      script.introduction.valueProposition,
-      script.introduction.credibility
-    ].filter(Boolean).join(' ');
-    if (scriptText) scenes.push({
-      label: 'Introduction', scriptText,
-      prompt: `${scriptText}. Establishing visual, clear subject, coherent lighting, no captions or on-screen text.`
-    });
-  }
-  for (const [index, section] of (script.mainContent?.sections || []).entries()) {
-    const scriptText = textFromSection(section);
-    scenes.push({
-      label: section.title || `Scene ${index + 1}`,
-      scriptText,
-      prompt: `${section.title || ''}. ${scriptText}`.trim() + '. Cinematic explanatory B-roll, natural motion, coherent lighting, no captions or on-screen text.'
-    });
-  }
-  if (script.conclusion) {
-    const scriptText = [...(script.conclusion.recap || []), script.conclusion.finalThought].filter(Boolean).join(' ');
-    if (scriptText) scenes.push({
-      label: 'Conclusion', scriptText,
-      prompt: `${scriptText}. Memorable cinematic closing shot, no captions or on-screen text.`
-    });
-  }
-  if (script.callToAction) {
-    const cta = script.callToAction;
-    const scriptText = [cta.subscribe, cta.like, cta.comment, cta.nextVideo]
-      .filter(value => typeof value === 'string').join(' ');
-    if (scriptText) scenes.push({
-      label: 'Call to action', scriptText,
-      prompt: `${scriptText}. Clean closing visual with open composition, no captions or on-screen text.`
-    });
-  }
-  return scenes.length ? scenes : [{ label: script.title || 'Video', scriptText: script.fullScript || '', prompt: script.title || 'Video scene' }];
-}
 
 function durationSeconds(value, fallback = 60) {
   if (Number.isFinite(Number(value))) return Math.max(1, Number(value));

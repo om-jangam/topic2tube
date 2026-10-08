@@ -3,6 +3,7 @@ const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
 const { AIVideoGenerator } = require('../utils/ai-video-generator');
 const { SceneRepairService } = require('../utils/scene-repair-service');
+const { scriptScenes } = require('../utils/script-scenes');
 
 class ProductionManagementAgent {
   constructor(db, credentials) {
@@ -155,67 +156,8 @@ class ProductionManagementAgent {
   }
 
   formatScriptForTTS(script) {
-    let ttsText = '';
-    
-    // Add hook
-    if (script.hook) {
-      ttsText += `${script.hook.text}\n\n`;
-    }
-    
-    // Add introduction
-    if (script.introduction) {
-      ttsText += `${script.introduction.greeting}\n`;
-      ttsText += `${script.introduction.topicIntro}\n`;
-      ttsText += `${script.introduction.valueProposition}\n`;
-      ttsText += `${script.introduction.credibility}\n\n`;
-    }
-    
-    // Add main content
-    if (script.mainContent && script.mainContent.sections) {
-      script.mainContent.sections.forEach((section, index) => {
-        ttsText += `Section ${index + 1}: ${section.title}\n`;
-        
-        if (Array.isArray(section.content)) {
-          section.content.forEach(line => {
-            if (typeof line === 'string' && !line.startsWith('[')) {
-              ttsText += `${line}\n`;
-            }
-          });
-        } else if (section.steps) {
-          section.steps.forEach(step => {
-            ttsText += `${step.title}. ${step.description}\n`;
-            ttsText += `${step.tip}\n`;
-          });
-        } else if (section.items) {
-          section.items.forEach(item => {
-            ttsText += `Number ${item.number}: ${item.title}. ${item.description}\n`;
-          });
-        } else if (typeof section.content === 'string') {
-          ttsText += `${section.content}\n`;
-        }
-        
-        ttsText += '\n';
-      });
-    }
-    
-    // Add conclusion
-    if (script.conclusion) {
-      script.conclusion.recap.forEach(line => {
-        if (typeof line === 'string') {
-          ttsText += `${line}\n`;
-        }
-      });
-      ttsText += `\n${script.conclusion.finalThought}\n\n`;
-    }
-    
-    // Add CTA
-    if (script.callToAction) {
-      ttsText += `${script.callToAction.subscribe}\n`;
-      ttsText += `${script.callToAction.like}\n`;
-      ttsText += `${script.callToAction.comment}\n`;
-    }
-    
-    return ttsText;
+    // Exactly what the voice says, scene by scene, with no section labels.
+    return scriptScenes(script).map(scene => scene.scriptText).join('\n\n');
   }
 
   async processThumbnail(thumbnail, script) {

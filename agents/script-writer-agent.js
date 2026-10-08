@@ -106,19 +106,32 @@ class ScriptWriterAgent {
       return null;
     }
 
-    const prompt = `You are writing a YouTube script plan.
+    const prompt = `You are writing a complete YouTube video script.
 Return only valid JSON with this exact shape:
 {
-  "title": "compelling title under 100 characters",
-  "hook": "opening hook in one sentence",
+  "title": "compelling title under 100 characters, in the channel's language and voice",
+  "thumbnailText": "2-4 punchy words for the thumbnail, in the channel's language and voice",
+  "hook": "spoken opening hook, 1-2 sentences",
   "sections": [
-    { "title": "section title", "content": ["spoken script bullet"], "duration": 60 }
+    {
+      "title": "short section title",
+      "onScreen": "short slide text (max 8 words), in the channel's language and voice",
+      "narration": "everything the narrator says in this section",
+      "visualQuery": "2-5 English words to search stock footage for this section",
+      "duration": 60
+    }
   ],
-  "cta": "clear call to action",
+  "cta": "spoken call to action, 1-2 sentences",
   "claims": [
     { "text": "specific factual claim a reviewer must verify", "riskLevel": "standard|high", "sourceUrls": ["exact supplied source URL"] }
   ]
 }
+
+Rules:
+- Write 5 to 7 sections. hook + all narration + cta together must be 900 to 1200 spoken words.
+- hook, narration and cta are read aloud by a Hindi voice: write them in Hindi using Devanagari script, keeping English technical words (AI, app, ChatGPT, Gemini, settings, prompt) in English letters.
+- title, thumbnailText and onScreen follow the channel's language and voice.
+- visualQuery is plain English describing a real-world scene a stock video site would have (for example "person using smartphone app"), never brand logos.
 
 Topic: ${strategy.topic}
 Style/content type: ${strategy.contentType}
@@ -139,7 +152,7 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
 
     try {
       const response = await this.aiTextService.generateText(prompt, {
-        maxTokens: 1800,
+        maxTokens: 4000,
         temperature: 0.7
       });
       const parsed = this.parseAIJsonResponse(response);
@@ -152,14 +165,16 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
       this.logger.info(`Using AI script generation via ${this.aiTextService.providerName}`);
       return {
         title: String(parsed.title).slice(0, 100),
+        thumbnailText: String(parsed.thumbnailText || '').trim().split(/\s+/).slice(0, 4).join(' '),
         hook: this.normalizeAIHook(parsed.hook),
-        introduction: await this.generateIntroduction(strategy),
+        // The AI writes the whole spoken script; template intro/outro lines would be English filler.
+        introduction: null,
         mainContent: {
           sections,
           totalDuration: this.calculateSectionsDuration(sections)
         },
-        conclusion: await this.generateConclusion(strategy),
-        callToAction: this.normalizeAICTA(parsed.cta, strategy),
+        conclusion: null,
+        callToAction: { type: 'call_to_action', subscribe: String(parsed.cta || '').trim() },
         duration: this.estimateDuration({ sections }),
         tone: template.tone,
         pacing: template.pacing,
@@ -213,18 +228,23 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
     return sections
       .slice(0, 8)
       .map((section, index) => {
-        const rawContent = Array.isArray(section.content)
-          ? section.content
-          : [section.content || section.summary || section.description];
+        const narration = String(section.narration || '').trim();
+        const rawContent = narration
+          ? [narration]
+          : Array.isArray(section.content) ? section.content : [section.content || section.summary || section.description];
         const content = rawContent
           .filter(Boolean)
           .map(line => String(line).trim())
           .filter(Boolean);
+        const title = String(section.title || `${strategy.topic} Part ${index + 1}`).trim();
 
         return {
           type: 'ai_generated',
-          title: String(section.title || `${strategy.topic} Part ${index + 1}`).trim(),
+          title,
           content,
+          narration: narration || content.join(' '),
+          onScreen: String(section.onScreen || title).trim(),
+          visualQuery: String(section.visualQuery || title).trim(),
           duration: parseInt(section.duration, 10) || 60
         };
       })
@@ -689,12 +709,14 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
     fullScript += `[${script.hook.duration}] HOOK\n`;
     fullScript += `${script.hook.text}\n\n`;
     
-    // Introduction
-    fullScript += `[${script.introduction.duration}] INTRODUCTION\n`;
-    fullScript += `${script.introduction.greeting}\n`;
-    fullScript += `${script.introduction.topicIntro}\n`;
-    fullScript += `${script.introduction.valueProposition}\n`;
-    fullScript += `${script.introduction.credibility}\n\n`;
+    // Introduction (template scripts only)
+    if (script.introduction) {
+      fullScript += `[${script.introduction.duration}] INTRODUCTION\n`;
+      fullScript += `${script.introduction.greeting}\n`;
+      fullScript += `${script.introduction.topicIntro}\n`;
+      fullScript += `${script.introduction.valueProposition}\n`;
+      fullScript += `${script.introduction.credibility}\n\n`;
+    }
     
     // Main Content
     fullScript += 'MAIN CONTENT\n';
@@ -734,19 +756,21 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
       fullScript += '\n';
     }
     
-    // Conclusion
-    fullScript += `[${script.conclusion.duration}] CONCLUSION\n`;
-    script.conclusion.recap.forEach(line => {
-      fullScript += `${line}\n`;
-    });
-    fullScript += `\n${script.conclusion.finalThought}\n\n`;
-    
+    // Conclusion (template scripts only)
+    if (script.conclusion) {
+      fullScript += `[${script.conclusion.duration}] CONCLUSION\n`;
+      script.conclusion.recap.forEach(line => {
+        fullScript += `${line}\n`;
+      });
+      fullScript += `\n${script.conclusion.finalThought}\n\n`;
+    }
+
     // Call to Action
-    fullScript += `[${script.callToAction.duration}] CALL TO ACTION\n`;
-    fullScript += `${script.callToAction.subscribe}\n`;
-    fullScript += `${script.callToAction.like}\n`;
-    fullScript += `${script.callToAction.comment}\n`;
-    fullScript += `${script.callToAction.nextVideo}\n\n`;
+    if (script.callToAction) {
+      const cta = script.callToAction;
+      fullScript += `[${cta.duration || '0:15'}] CALL TO ACTION\n`;
+      fullScript += [cta.subscribe, cta.like, cta.comment, cta.nextVideo].filter(Boolean).join('\n') + '\n\n';
+    }
     
     // Metadata
     fullScript += '═'.repeat(50) + '\n';

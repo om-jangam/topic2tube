@@ -50,6 +50,7 @@ class SystemTest {
       { name: 'Multi-Provider Credential Validation', test: () => this.testCredentialValidation() },
       { name: 'AI Text Service Token Compatibility', test: () => this.testAITextServiceTokenParams() },
       { name: 'Gemini Model Chain', test: () => this.testGeminiModelChain() },
+      { name: 'Hinglish Script Scenes', test: () => this.testHinglishScriptScenes() },
       { name: 'Placeholder Scheduling Guard', test: () => this.testPlaceholderSchedulingGuard() },
       { name: 'FFmpeg Resolution', test: () => this.testFFmpegResolution() },
       { name: 'Gemini Media Provider Selection', test: () => this.testGeminiMediaProvider() },
@@ -2394,6 +2395,78 @@ class SystemTest {
     }
 
     this.logger.info('Credential validation test completed successfully');
+  }
+
+  async testHinglishScriptScenes() {
+    const { scriptScenes } = require('./utils/script-scenes');
+    const { ProductionManagementAgent } = require('./agents/production-management-agent');
+    const { ScriptWriterAgent } = require('./agents/script-writer-agent');
+    const script = {
+      title: 'Jio users ko FREE Google AI Pro kaise milega?',
+      hook: { text: 'नमस्ते दोस्तों!' },
+      introduction: null,
+      conclusion: null,
+      mainContent: { sections: [
+        { title: 'Offer kya hai', narration: 'Jio users को 18 महीने free AI Pro मिलता है।', content: ['Jio users को 18 महीने free AI Pro मिलता है।'], onScreen: '18 mahine FREE AI Pro', visualQuery: 'smartphone app offer' },
+        { title: 'Claim kaise karein', narration: 'MyJio app खोलिए और banner पर tap कीजिए।', content: ['MyJio app खोलिए और banner पर tap कीजिए।'], onScreen: 'MyJio app kholo', visualQuery: 'person tapping phone screen' }
+      ] },
+      callToAction: { subscribe: 'Channel subscribe करो' }
+    };
+
+    const scenes = scriptScenes(script);
+    const labels = scenes.map(scene => scene.label);
+    const expected = ['Hook', 'Offer kya hai', 'Claim kaise karein', 'Call to action'];
+    if (JSON.stringify(labels) !== JSON.stringify(expected)) {
+      throw new Error(`Scene labels were ${labels.join(', ')}`);
+    }
+    if (scenes[1].onScreen !== '18 mahine FREE AI Pro' || scenes[2].visualQuery !== 'person tapping phone screen') {
+      throw new Error('Slide text and visual search words must be carried into each scene');
+    }
+
+    const tts = Object.create(ProductionManagementAgent.prototype).formatScriptForTTS(script);
+    for (const banned of ['Section', 'welcome back', 'Like this video']) {
+      if (tts.includes(banned)) throw new Error(`Narration must not contain "${banned}": ${tts.slice(0, 200)}`);
+    }
+    if (tts !== scenes.map(scene => scene.scriptText).join('\n\n')) {
+      throw new Error('Narration text must be exactly the scene texts in order');
+    }
+
+    const writer = Object.create(ScriptWriterAgent.prototype);
+    const [section] = writer.normalizeAISections([{
+      title: 'Offer kya hai', narration: 'Jio users को offer मिलता है।', onScreen: 'FREE offer', visualQuery: 'phone offer', duration: 70
+    }], { topic: 'Jio AI Pro' });
+    if (!section || JSON.stringify(section.content) !== JSON.stringify(['Jio users को offer मिलता है।']) ||
+        section.onScreen !== 'FREE offer' || section.visualQuery !== 'phone offer' || section.narration !== 'Jio users को offer मिलता है।') {
+      throw new Error(`AI sections must keep narration, slide text and visual query: ${JSON.stringify(section)}`);
+    }
+
+    writer.logger = { info() {}, warn() {}, error() {} };
+    let requestedTokens = 0;
+    writer.aiTextService = {
+      isAvailable: () => true,
+      providerName: 'Stub',
+      generateText: async (_prompt, options) => {
+        requestedTokens = options.maxTokens;
+        return JSON.stringify({
+          title: 'Jio users ko FREE AI Pro', thumbnailText: 'FREE AI PRO',
+          hook: 'क्या आप free AI Pro चाहते हैं?',
+          sections: [{ title: 'Offer', onScreen: '18 mahine FREE', narration: 'Jio users को offer मिलता है।', visualQuery: 'smartphone offer', duration: 60 }],
+          cta: 'Channel को subscribe करो।', claims: []
+        });
+      }
+    };
+    const aiScript = await writer.generateScriptWithAI({ topic: 'Jio AI Pro', contentType: 'Tutorial', keywords: [] }, { tone: 'helpful', pacing: 'steady' });
+    if (requestedTokens !== 4000) throw new Error(`Script requests must allow 4000 tokens, got ${requestedTokens}`);
+    if (aiScript.introduction !== null || aiScript.conclusion !== null) {
+      throw new Error('AI scripts must not carry the English template introduction or conclusion');
+    }
+    if (aiScript.callToAction.subscribe !== 'Channel को subscribe करो।' || aiScript.callToAction.like || aiScript.thumbnailText !== 'FREE AI PRO') {
+      throw new Error(`AI call to action / thumbnail text not kept: ${JSON.stringify(aiScript.callToAction)} ${aiScript.thumbnailText}`);
+    }
+    const fullScript = writer.formatFullScript(aiScript);
+    if (!fullScript.includes('Jio users को offer मिलता है।') || fullScript.includes('INTRODUCTION')) {
+      throw new Error('Full script for an AI script must contain the narration and no template introduction');
+    }
   }
 
   async testGeminiModelChain() {
