@@ -75,9 +75,14 @@ the app says why instead of producing placeholder or template content.
 
 ### 3. Visuals (new `utils/stock-media.js`, `utils/pollinations.js`)
 Per scene, using the scene's `visualQuery`:
-1. Pexels video clip, as a new free provider in `utils/video-providers.js` so
-   existing hybrid clip assembly is reused.
+1. Pexels video clip.
 2. Pexels photo, with a slow zoom (FFmpeg `zoompan`) when used as a still.
+
+Visuals are assembled by a new scene timeline (`utils/scene-timeline.js`):
+each script scene (hook, sections, call to action) is shown for its share of
+the narration, with its own visual and slide text. (Revised during planning:
+the existing hybrid assembly puts all clips first and all stills after, so
+visuals would not line up with the narration.)
 3. Pollinations AI image (free; optional free key removes watermark and raises
    the rate limit).
 4. Clean text slide.
@@ -97,7 +102,8 @@ Per scene, using the scene's `visualQuery`:
 - Daily automatic generation moves from 6 AM to 2 PM (after quota reset) and
   stays paused until the owner turns it on.
 - Shorts: the existing Shorts studio proposes 3 vertical clips with burned-in
-  captions; verify it end to end and fix what breaks.
+  captions; verify it end to end and fix what breaks. Captions use the
+  "Nirmala UI" font (Arial has no Devanagari glyphs).
 - Publishing stays manual: download video and thumbnail from the dashboard,
   upload in YouTube Studio with the generated title/description.
 - Remove the four broken test productions from the dashboard.
