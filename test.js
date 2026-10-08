@@ -51,6 +51,7 @@ class SystemTest {
       { name: 'AI Text Service Token Compatibility', test: () => this.testAITextServiceTokenParams() },
       { name: 'Gemini Model Chain', test: () => this.testGeminiModelChain() },
       { name: 'Hinglish Script Scenes', test: () => this.testHinglishScriptScenes() },
+      { name: 'No Template Fallback With AI', test: () => this.testNoTemplateFallbackWithAI() },
       { name: 'Placeholder Scheduling Guard', test: () => this.testPlaceholderSchedulingGuard() },
       { name: 'FFmpeg Resolution', test: () => this.testFFmpegResolution() },
       { name: 'Gemini Media Provider Selection', test: () => this.testGeminiMediaProvider() },
@@ -2395,6 +2396,60 @@ class SystemTest {
     }
 
     this.logger.info('Credential validation test completed successfully');
+  }
+
+  async testNoTemplateFallbackWithAI() {
+    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
+    const { ScriptWriterAgent } = require('./agents/script-writer-agent');
+    const { SEOOptimizerAgent } = require('./agents/seo-optimizer-agent');
+    const { YouTubeAutomationAgent } = require('./index');
+    const { OperatorService } = require('./utils/operator-service');
+    const db = new Database();
+    await db.initialize();
+    const quiet = { info() {}, warn() {}, error() {}, success() {}, debug() {} };
+    const quota = Object.assign(new Error(JSON.stringify({ error: { code: 429 } })), { status: 429 });
+    const failingAI = { isAvailable: () => true, providerName: 'Stub', generateText: async () => { throw quota; } };
+    const noAI = { isAvailable: () => false, providerName: null, generateText: async () => { throw new Error('unused'); } };
+    const build = (Agent, ai) => {
+      const agent = new Agent(db, {});
+      agent.logger = quiet;
+      agent.aiTextService = ai;
+      return agent;
+    };
+    const strategyInput = { topic: 'Jio AI Pro', contentType: 'Tutorial', keywords: ['jio'], targetAudience: 'Hindi beginners', angle: 'step by step' };
+    const expectStepFailure = async (label, run) => {
+      let failure = null;
+      try { await run(); } catch (error) { failure = error; }
+      if (!failure || failure.code !== 'AI_STEP_FAILED' || !failure.message.includes('Free Gemini limits')) {
+        throw new Error(`${label} must fail with AI_STEP_FAILED, got ${failure ? `${failure.code}: ${failure.message}` : 'a template result'}`);
+      }
+    };
+
+    try {
+      await expectStepFailure('Strategy', () => build(ContentStrategyAgent, failingAI).generateContentStrategy('x'));
+      await expectStepFailure('Script', () => build(ScriptWriterAgent, failingAI).generateScript(strategyInput));
+      const templateScript = await build(ScriptWriterAgent, noAI).generateScript(strategyInput);
+      if (templateScript.metadata?.generationSource === 'ai') throw new Error('Template script was labelled as AI');
+      await expectStepFailure('SEO', () => build(SEOOptimizerAgent, failingAI).optimize(templateScript, strategyInput));
+
+      const templateStrategy = await build(ContentStrategyAgent, noAI).generateContentStrategy('x');
+      const templateSEO = await build(SEOOptimizerAgent, noAI).optimize(templateScript, strategyInput);
+      if (!templateStrategy?.topic || !templateSEO?.title) throw new Error('Without an AI provider the templates must still work');
+
+      const app = new YouTubeAutomationAgent();
+      app.logger = quiet;
+      app.db = db;
+      app.operator = new OperatorService(db);
+      app.agents = { strategy: build(ContentStrategyAgent, failingAI) };
+      const job = await app.startGenerationJob({ topic: 'Jio AI Pro', style: 'tutorial', length: 'medium', source: 'manual' });
+      await app.waitForGenerationJob(job.id).catch(() => null);
+      const finished = await db.getGenerationJob(job.id);
+      if (finished.status !== 'failed' || !String(finished.error).includes('Free Gemini limits')) {
+        throw new Error(`The job must fail with a readable reason, got ${finished.status}: ${finished.error}`);
+      }
+    } finally {
+      await db.close();
+    }
   }
 
   async testHinglishScriptScenes() {

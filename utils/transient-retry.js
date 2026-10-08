@@ -36,4 +36,16 @@ async function retryTransient(fn, options = {}) {
   }
 }
 
-module.exports = { isTransientError, isQuotaError, retryTransient };
+// An AI step that could not run. Raised instead of quietly using template text.
+class AiStepError extends Error {
+  constructor(step, cause) {
+    const reason = String(cause?.message || cause || 'unknown error').slice(0, 300);
+    super(`${step} failed: ${reason}. Free Gemini limits may be used up — try again after about 1 PM.`);
+    this.name = 'AiStepError';
+    this.code = 'AI_STEP_FAILED';
+    this.step = step;
+    this.cause = cause;
+  }
+}
+
+module.exports = { isTransientError, isQuotaError, retryTransient, AiStepError };

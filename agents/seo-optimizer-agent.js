@@ -1,5 +1,6 @@
 const { Logger } = require('../utils/logger');
 const { AITextService } = require('../utils/ai-text-service');
+const { AiStepError } = require('../utils/transient-retry');
 
 class SEOOptimizerAgent {
   constructor(db, credentials) {
@@ -132,8 +133,7 @@ Keep tags under YouTube's 500 character total guidance. Avoid fabricated statist
         tags
       };
     } catch (error) {
-      this.logger.warn(`AI SEO optimization failed; using template fallback: ${error.message}`);
-      return null;
+      throw new AiStepError('Title and description writing', error);
     }
   }
 

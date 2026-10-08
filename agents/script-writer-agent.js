@@ -1,5 +1,6 @@
 const { Logger } = require('../utils/logger');
 const { AITextService } = require('../utils/ai-text-service');
+const { AiStepError } = require('../utils/transient-retry');
 
 class ScriptWriterAgent {
   constructor(db, credentials) {
@@ -188,8 +189,7 @@ Avoid fabricated statistics, unsupported claims, and fake urgency. List every ex
         }
       };
     } catch (error) {
-      this.logger.warn(`AI script generation failed; using template fallback: ${error.message}`);
-      return null;
+      throw new AiStepError('Script writing', error);
     }
   }
 

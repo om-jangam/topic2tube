@@ -1,5 +1,6 @@
 const { Logger } = require('../utils/logger');
 const { AITextService } = require('../utils/ai-text-service');
+const { AiStepError } = require('../utils/transient-retry');
 
 class ContentStrategyAgent {
   constructor(db, credentials) {
@@ -479,8 +480,7 @@ Avoid fabricated claims and unsupported numbers.`;
         createdAt: new Date().toISOString()
       };
     } catch (error) {
-      this.logger.warn(`AI content strategy failed; using template fallback: ${error.message}`);
-      return null;
+      throw new AiStepError('Video planning', error);
     }
   }
 
